@@ -1,88 +1,122 @@
 # MoMo Payment Bot
 
-A Discord bot that lets users create real MoMo Wallet payment requests directly from a server, track their status automatically, and notify staff on success — all via slash commands.
+A Discord bot for creating and managing MoMo Wallet payment requests directly from Discord. Users can generate a payment request, receive a payment link and QR code, and have the bot automatically track the transaction until it succeeds, fails, or expires.
 
 🇻🇳 [Tiếng Việt](README.vi.md)
 
 ## Features
 
-- `/thanhtoan <amount>` — creates a MoMo payment request (min. 2,000 VND), returns a pay link + QR code, and auto-polls MoMo until the transaction succeeds, fails, or expires (10 min).
-- `/huygiaodich <transaction_id>` — cancels a pending transaction.
-- Per-user rate limiting (60s cooldown, max 3 concurrent pending transactions).
-- Automatic staff-channel notification when a payment is confirmed.
-- Full MoMo v3 API error-code mapping with human-readable Vietnamese messages.
-- Structured logging to `bot.log` (sensitive values are SHA-256 hashed before being logged).
+* `/thanhtoan <amount>` — creates a MoMo payment request with a minimum amount of **2,000 VND**, then returns a payment link and QR code. The bot automatically checks the transaction status until it succeeds, fails, or expires after 10 minutes.
+* `/huygiaodich <transaction_id>` — cancels a pending transaction.
+* **Per-user rate limiting** — users must wait 60 seconds between requests and can have up to 3 pending transactions at the same time.
+* **Payment notifications** — automatically notifies the staff channel when a payment is confirmed.
+* **MoMo v3 error handling** — maps MoMo API result codes to readable Vietnamese error messages.
+* **Structured logging** — logs are written to `bot.log`, with sensitive values hashed using SHA-256 before being logged.
 
-## Project structure
+## Project Structure
 
-```
+```text
 momo-bot/
-├── main.py                     # entry point: loads config, starts the bot
+├── main.py                     # Application entry point
 ├── constants/
-│   ├── config.py                # env vars & global constants
-│   └── momo_errors.py           # MoMo API result-code lookup table
+│   ├── config.py               # Environment variables and global constants
+│   └── momo_errors.py          # MoMo API result-code mappings
 ├── model/
-│   └── transaction.py           # GiaoDich / RateLimitInfo dataclasses
+│   └── transaction.py          # GiaoDich and RateLimitInfo dataclasses
 ├── utils/
-│   ├── logger.py                 # logging setup
-│   ├── security.py               # HMAC signature + hashing helpers
-│   ├── discord_files.py          # base64 -> discord.File conversion
-│   └── embeds.py                 # shared embed footer helper
+│   ├── logger.py               # Logging configuration
+│   ├── security.py             # HMAC signing and hashing utilities
+│   ├── discord_files.py        # Converts base64 data to discord.File
+│   └── embeds.py               # Shared Discord embed helpers
 ├── services/
-│   ├── momo_service.py           # calls to the MoMo /create and /query endpoints
-│   └── transaction_service.py    # in-memory state, rate limiting, status polling loop
+│   ├── momo_service.py         # MoMo /create and /query API calls
+│   └── transaction_service.py  # Transaction state, rate limiting, and polling
 ├── command/
-│   └── payment_commands.py       # /thanhtoan and /huygiaodich slash commands (Cog)
+│   └── payment_commands.py     # /thanhtoan and /huygiaodich slash commands
 ├── requirements.txt
 └── .env.example
 ```
 
 ## Requirements
 
-- Python 3.10+
-- A Discord bot application + token ([Discord Developer Portal](https://discord.com/developers/applications))
-- A MoMo Business account with API access ([business.momo.vn](https://business.momo.vn))
-- Two publicly reachable **HTTPS** endpoints for `ipnUrl` and `redirectUrl` (MoMo will call these back)
+* **Python 3.10+**
+* A Discord bot application and bot token from the [Discord Developer Portal](https://discord.com/developers/applications)
+* A **MoMo Business** account with API access from [MoMo Business](https://business.momo.vn)
+* Two publicly accessible **HTTPS** endpoints for `ipnUrl` and `redirectUrl`
 
 ## Setup
 
-1. Clone/copy the project, then install dependencies:
+### 1. Install dependencies
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+Clone or copy the project, then install the required packages:
 
-2. Copy the env template and fill in your real values:
+```bash
+pip install -r requirements.txt
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+### 2. Configure environment variables
 
-   | Variable | Description |
-   |---|---|
-   | `DISCORD_BOT_TOKEN` | Your Discord bot token |
-   | `STAFF_CHANNEL_ID` | Channel ID where successful payments are announced |
-   | `PARTNER_CODE` / `ACCESS_KEY` / `SECRET_KEY` | Credentials from your MoMo Business Portal |
-   | `MOMO_ENDPOINT` | MoMo gateway base URL (defaults to production) |
-   | `ipnUrl` / `redirectUrl` | Your HTTPS callback URLs registered with MoMo |
+Copy the example environment file:
 
-3. Invite the bot to your server with the `applications.commands` and `bot` scopes (message content intent enabled).
+```bash
+cp .env.example .env
+```
 
-4. Run it:
+Then fill in the required values:
 
-   ```bash
-   python main.py
-   ```
+| Variable            | Description                                                  |
+| ------------------- | ------------------------------------------------------------ |
+| `DISCORD_BOT_TOKEN` | Your Discord bot token                                       |
+| `STAFF_CHANNEL_ID`  | Discord channel ID used for successful payment notifications |
+| `PARTNER_CODE`      | MoMo Business partner code                                   |
+| `ACCESS_KEY`        | MoMo API access key                                          |
+| `SECRET_KEY`        | MoMo API secret key                                          |
+| `MOMO_ENDPOINT`     | MoMo API base URL. Defaults to the production endpoint       |
+| `ipnUrl`            | Public HTTPS URL registered with MoMo for IPN callbacks      |
+| `redirectUrl`       | Public HTTPS URL registered with MoMo for redirects          |
 
-   Slash commands are synced automatically on startup (`on_ready`).
+### 3. Invite the bot
 
-## Notes / caveats
+Invite the bot to your Discord server with the required `bot` and `applications.commands` scopes.
 
-- This bot talks to MoMo's **production** endpoint by default — every transaction created is a real payment request. Point `MOMO_ENDPOINT` at MoMo's sandbox if you want to test without moving real money.
-- Transaction state (`giao_dich_active`, rate-limit tracking) is kept **in memory only** — it resets if the process restarts, and won't work correctly across multiple bot instances/shards.
-- The bot fetches the QR code by scraping MoMo's hosted pay page (`BeautifulSoup`) rather than pulling it from the `/create` API response — this is inherently fragile against changes to MoMo's page markup.
-- No IPN webhook receiver is included; payment confirmation relies purely on polling `/query` every 30 seconds.
+The bot also requires the **Message Content Intent** to be enabled in the Discord Developer Portal.
+
+### 4. Start the bot
+
+```bash
+python main.py
+```
+
+Slash commands are automatically synchronized when the bot becomes ready.
+
+## Notes
+
+### Production payments
+
+The bot uses MoMo's **production endpoint by default**. Any payment request created through the production endpoint represents a real transaction.
+
+For testing, configure `MOMO_ENDPOINT` to use MoMo's sandbox environment instead.
+
+### In-memory transaction state
+
+Transaction state and rate-limit information are stored **in memory only**.
+
+This means:
+
+* All active transactions are lost when the bot restarts.
+* Rate-limit information is reset on restart.
+* Running multiple bot instances or shards is not supported correctly with the current implementation.
+
+### QR code generation
+
+The bot retrieves the QR code by scraping MoMo's hosted payment page with `BeautifulSoup` instead of receiving the QR data directly from the `/create` API response.
+
+Because this depends on MoMo's page structure, changes to the payment page markup may break QR code extraction.
+
+### Payment confirmation
+
+The bot does not include an IPN webhook receiver. Instead, it checks the transaction status through MoMo's `/query` endpoint every 30 seconds until the transaction reaches a final state or expires.
 
 ## License
 
-Open Source Project - GPL-3.0 License
+This project is open source and released under the **GNU General Public License v3.0 (GPL-3.0)**.
