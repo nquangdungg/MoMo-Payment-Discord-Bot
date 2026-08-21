@@ -85,4 +85,4 @@ momo-bot/
 
 ## Giấy phép
 
-Dự án nội bộ — chưa quy định giấy phép.
+Dự án công khai - Giấy phép GPL-3.0

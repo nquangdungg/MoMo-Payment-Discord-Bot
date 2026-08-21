@@ -85,4 +85,4 @@ momo-bot/
 
 ## License
 
-Internal project — no license specified.
+Open Source Project - GPL-3.0 License
